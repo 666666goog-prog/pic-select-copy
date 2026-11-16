@@ -343,3 +343,18 @@ def build_document(lines, image=None) -> Document:
                                   start=start, end=len(doc.chars)))
     doc.stats = {"projection": proj, "fallback": fall}
     return doc
+
+
+# ---------------------------------------------------------- 复制过滤
+
+def filter_to_ascii_id(text: str) -> str:
+    """只保留英文字母、数字和下划线，其余（中文、@、标点、空格、换行）全去掉。
+
+    用途：在名单页复制用户名时，同一行右边往往还有个中文按钮
+    （如「正在关注」），拖选时容易被一起选中；用这个过滤复制，
+    结果只剩用户名本身，如「@ramenbearx 正在关注」->「ramenbearx」、
+    「@raikun__sub」->「raikun__sub」。
+    """
+    return "".join(ch for ch in text
+                   if ch == "_" or "0" <= ch <= "9"
+                   or "A" <= ch <= "Z" or "a" <= ch <= "z")

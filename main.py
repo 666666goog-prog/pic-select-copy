@@ -1,9 +1,10 @@
-"""图片选字 v1.0.1 —— 把图片拖进来，直接在原图上选字复制。
+"""图片选字 v1.0.2 —— 把图片拖进来，直接在原图上选字复制。
 
 只有两个功能：
 1. 把一张图片拖进窗口打开（拖新图替换旧图）；
 2. 识别完成后，在原图上用 I 光标拖着选字（最小一个字/一个数字），
-   右键「复制」或 Ctrl+C 复制选中的字。
+   右键「复制」或 Ctrl+C 复制选中的字；右键还有「只复制英文/数字/下划线」，
+   复制用户名时用它，同行的中文按钮（如「正在关注」）不会混进来。
 另有必要的看图支持：打开自动适窗；滚轮在图片上是以光标为中心缩放、
 在图片外是上下滚动浏览长图；拖空白处平移。
 """
@@ -21,9 +22,9 @@ from PySide6.QtGui import (QAction, QClipboard, QColor, QCursor, QImage,
 from PySide6.QtWidgets import (QApplication, QMainWindow, QMenu, QWidget)
 
 from ocr_engine import OcrEngine
-from selection import Document, build_document
+from selection import Document, build_document, filter_to_ascii_id
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 APP_NAME = "图片选字"
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
@@ -151,6 +152,16 @@ class ImageView(QWidget):
         if text:
             QApplication.clipboard().setText(text)
             self.status_hint.emit(f"已复制 {len(text.replace(chr(10), ''))} 个字")
+        return text
+
+    def copy_selection_as_id(self):
+        """只复制英文字母/数字/下划线：复制用户名时，同行的中文按钮不混进来。"""
+        text = filter_to_ascii_id(self.selected_text())
+        if text:
+            QApplication.clipboard().setText(text)
+            self.status_hint.emit(f"已复制 {len(text)} 个字符（只留英文/数字/下划线）")
+        elif self.selected_text():
+            self.status_hint.emit("选中的内容里没有英文或数字")
         return text
 
     # ------------------------------------------------------------ 绘制
@@ -330,6 +341,10 @@ class ImageView(QWidget):
         act.setEnabled(bool(self.selected_text()))
         act.triggered.connect(self.copy_selection)
         menu.addAction(act)
+        act2 = QAction("只复制英文/数字/下划线", self)
+        act2.setEnabled(bool(filter_to_ascii_id(self.selected_text())))
+        act2.triggered.connect(self.copy_selection_as_id)
+        menu.addAction(act2)
         menu.exec(event.globalPos())
 
 
