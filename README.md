@@ -1,11 +1,11 @@
-# 图片选字 v1.0.0
+# 图片选字 v1.0.1
 
 一个只有两个功能的小工具（Windows 10 64 位，便携版，解压双击 `PicSelectCopy.exe` 就能用，不用安装、不用登录、不用联网）：
 
 1. **把图片拖进来**：打开软件，把一张图片文件（jpg / png / webp / bmp）用鼠标拖进窗口就打开了。拖一张新图进来会换掉旧图。
 2. **在图片上直接选字复制**：拖进来后会自动识别（状态栏显示“正在识别…”，好了会显示“识别完成”）。识别完，鼠标移到图片的文字上会变成 I 形光标，按住拖动就能像在文档里一样选中文字——最少可以只选 **1 个字 / 1 个数字**。松开后点右键，菜单里点「复制」，或者按 Ctrl+C，就把选中的字复制走了。
 
-看图：打开时图片会自动缩放到窗口大小；滚轮可以放大缩小（朝着鼠标位置放大）；图片太大或太长时，在没有文字的空白地方按住拖动可以移动画面（按住 Alt 拖、或者用鼠标中键拖也可以）。
+看图：打开时图片会自动缩放到窗口大小；滚轮看光标在哪儿——**光标在图片上**时是放大缩小（朝着鼠标位置放大），**光标在图片旁边**时是上下滚动，一格一格翻看长图；图片太大或太长时，在没有文字的空白地方按住拖动也可以移动画面（按住 Alt 拖、或者用鼠标中键拖也可以）。
 
 ## 已知限制（先说清）
 
@@ -16,4 +16,4 @@
 
 - 源码：`main.py`（界面）、`ocr_engine.py`（离线 OCR，RapidOCR）、`selection.py`（逐字切分与选字逻辑，纯逻辑可单测）。
 - 本地测试：`python -m pytest tests/ -v`（合成图 + 真 OCR 流水线 + 离线 GUI 冒烟）。
-- Windows 构建：GitHub Actions 的 `build-windows.yml`（windows-latest + Python 3.11 + PyInstaller），产物为 `PicSelectCopy_Windows_X64_v1.0.0.zip`。
+- Windows 构建：GitHub Actions 的 `build-windows.yml`（windows-latest + Python 3.11 + PyInstaller），产物为 `PicSelectCopy_Windows_X64_v1.0.1.zip`。

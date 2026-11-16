@@ -1,10 +1,11 @@
-"""图片选字 v1.0.0 —— 把图片拖进来，直接在原图上选字复制。
+"""图片选字 v1.0.1 —— 把图片拖进来，直接在原图上选字复制。
 
 只有两个功能：
 1. 把一张图片拖进窗口打开（拖新图替换旧图）；
 2. 识别完成后，在原图上用 I 光标拖着选字（最小一个字/一个数字），
    右键「复制」或 Ctrl+C 复制选中的字。
-另有必要的看图支持：打开自动适窗、滚轮以光标为中心缩放、拖空白处平移。
+另有必要的看图支持：打开自动适窗；滚轮在图片上是以光标为中心缩放、
+在图片外是上下滚动浏览长图；拖空白处平移。
 """
 
 from __future__ import annotations
@@ -22,9 +23,20 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QMenu, QWidget)
 from ocr_engine import OcrEngine
 from selection import Document, build_document
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_NAME = "图片选字"
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def drop_file_path(mime):
+    """拖放验收规则（主窗口和图片区共用）：恰好拖入一个本地文件、
+    且扩展名在允许列表里时，返回它的路径；否则返回 None。"""
+    urls = mime.urls()
+    if len(urls) == 1 and urls[0].isLocalFile():
+        path = urls[0].toLocalFile()
+        if os.path.splitext(path)[1].lower() in ALLOWED_EXTS:
+            return path
+    return None
 
 
 # ---------------------------------------------------------------- OCR 线程
@@ -54,11 +66,14 @@ class ImageView(QWidget):
     """负责画图、选字高亮、缩放平移、右键复制的控件。"""
 
     status_hint = Signal(str)   # 需要在状态栏提示时发给主窗口
+    file_dropped = Signal(str)  # 图片拖到图片区上松手 -> 主窗口加载它
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
+        # 图片区盖满整个窗口，拖放必须由它自己接，否则图上拖图替换不了
+        self.setAcceptDrops(True)
         self._pixmap: QPixmap | None = None
         self._doc: Document | None = None
         self._scale = 1.0
@@ -240,21 +255,66 @@ class ImageView(QWidget):
             self._pan_last = None
             self.setCursor(Qt.ArrowCursor)
 
+    # ------------------------------------------------------------ 拖放
+    def dragEnterEvent(self, event):
+        if drop_file_path(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if drop_file_path(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = drop_file_path(event.mimeData())
+        if path is not None:
+            self.file_dropped.emit(path)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    # ------------------------------------------------------------ 滚轮
+    def handle_wheel(self, pos: QPointF, delta_y: int):
+        """滚轮行为（独立成方法方便测试）：
+        光标在图片上 -> 以光标为中心缩放；
+        光标在图片外 -> 上下滚动浏览（长图），图完全装得下时不滚、保持居中。"""
+        if self._pixmap is None or delta_y == 0:
+            return
+        disp = QRectF(self._offset.x(), self._offset.y(),
+                      self._pixmap.width() * self._scale,
+                      self._pixmap.height() * self._scale)
+        if disp.contains(pos):
+            factor = 1.25 if delta_y > 0 else 0.8
+            new_scale = max(0.02, min(30.0, self._scale * factor))
+            if new_scale == self._scale:
+                return
+            img_before = self._to_image(pos)
+            self._scale = new_scale
+            # 让光标下的图片点保持不动
+            self._offset = QPointF(pos.x() - img_before.x() * self._scale,
+                                   pos.y() - img_before.y() * self._scale)
+            self._user_transformed = True
+            self.update()
+            return
+        disp_h = disp.height()
+        if disp_h <= self.height():
+            return  # 整个图都看得见，没什么可滚的
+        # 每格滚轮（120）滚 80px：上滚图往下走（回到上面），下滚图往上走
+        new_y = self._offset.y() + (delta_y / 120.0) * 80.0
+        new_y = max(self.height() - disp_h, min(0.0, new_y))
+        if new_y != self._offset.y():
+            self._offset = QPointF(self._offset.x(), new_y)
+            self._user_transformed = True
+            self.update()
+
     def wheelEvent(self, event):
         if self._pixmap is None:
             return
-        factor = 1.25 if event.angleDelta().y() > 0 else 0.8
-        new_scale = max(0.02, min(30.0, self._scale * factor))
-        if new_scale == self._scale:
-            return
-        cursor = event.position()
-        img_before = self._to_image(cursor)
-        self._scale = new_scale
-        # 让光标下的图片点保持不动
-        self._offset = QPointF(cursor.x() - img_before.x() * self._scale,
-                               cursor.y() - img_before.y() * self._scale)
-        self._user_transformed = True
-        self.update()
+        self.handle_wheel(event.position(), event.angleDelta().y())
+        event.accept()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -287,6 +347,7 @@ class MainWindow(QMainWindow):
         self.view = ImageView(self)
         self.setCentralWidget(self.view)
         self.view.status_hint.connect(self.statusBar().showMessage)
+        self.view.file_dropped.connect(self.load_image)
         self.statusBar().showMessage("把图片拖进来")
 
         copy_shortcut = QShortcut(QKeySequence.Copy, self)
@@ -294,23 +355,22 @@ class MainWindow(QMainWindow):
 
         self._thread: QThread | None = None
         self._worker: OcrWorker | None = None
+        self._retiring = []   # 换图时退下来的旧识别线程（还在跑完手头那张）
         self._pending_path = None
         self._ocr_gen = 0
 
     # ------------------------------------------------------------ 拖放
+    # 窗口边框等图片区没盖住的地方拖入时走这里（兜底）；图片区自己也接。
     def dragEnterEvent(self, event):
-        urls = event.mimeData().urls()
-        if len(urls) == 1 and urls[0].isLocalFile():
-            ext = os.path.splitext(urls[0].toLocalFile())[1].lower()
-            if ext in ALLOWED_EXTS:
-                event.acceptProposedAction()
-                return
-        event.ignore()
+        if drop_file_path(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls and urls[0].isLocalFile():
-            self.load_image(urls[0].toLocalFile())
+        path = drop_file_path(event.mimeData())
+        if path is not None:
+            self.load_image(path)
             event.acceptProposedAction()
 
     # ------------------------------------------------------------ 加载+识别
@@ -330,7 +390,7 @@ class MainWindow(QMainWindow):
         self._start_ocr(np.asarray(pil, dtype=np.uint8))
 
     def _start_ocr(self, image_rgb: np.ndarray):
-        self._cleanup_thread()
+        self._retire_thread()
         self._ocr_gen += 1
         self._thread = QThread(self)
         self._worker = OcrWorker(image_rgb, self._ocr_gen)
@@ -342,12 +402,17 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._thread.quit)
         self._thread.start()
 
-    def _cleanup_thread(self):
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(3000)
+    def _retire_thread(self):
+        """把上一轮识别线程退下来：不在界面线程上等它（旧实现 wait(3000)
+        会把换图卡住 3 秒），让它自己跑完手头那张图自然结束；
+        它的结果回来时靠代次守卫丢弃。已结束的旧条目顺手清掉。"""
+        self._retiring = [e for e in self._retiring if e[0].isRunning()]
+        thread, worker = self._thread, self._worker
         self._thread = None
         self._worker = None
+        if thread is not None and thread.isRunning():
+            self._retiring.append((thread, worker))
+            thread.quit()
 
     def _on_ocr_finished(self, doc: Document, generation: int):
         if generation != self._ocr_gen:
@@ -366,7 +431,13 @@ class MainWindow(QMainWindow):
         self.ocr_done.emit()
 
     def closeEvent(self, event):
-        self._cleanup_thread()
+        threads = [t for t, _w in self._retiring]
+        if self._thread is not None:
+            threads.append(self._thread)
+        for t in threads:
+            t.quit()
+        for t in threads:
+            t.wait(1000)   # 关窗口时最多短等一下，不长卡
         super().closeEvent(event)
 
 
