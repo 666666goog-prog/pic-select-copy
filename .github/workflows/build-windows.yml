@@ -1,0 +1,36 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller PicSelectCopy.spec --noconfirm
+
+      - name: Zip portable folder
+        shell: pwsh
+        run: Compress-Archive -Path dist/PicSelectCopy -DestinationPath PicSelectCopy_Windows_X64_v1.0.0.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PicSelectCopy_Windows_X64_v1.0.0
+          path: PicSelectCopy_Windows_X64_v1.0.0.zip
